@@ -12,10 +12,13 @@ final class SwiftMCPTests: XCTestCase {
             instructions: "Test instructions"
         )
         
-        XCTAssertEqual(server.serverInfo.name, "test-server")
-        XCTAssertEqual(server.serverInfo.version, "1.0.0")
-        XCTAssertEqual(server.serverInfo.title, "Test Server")
-        XCTAssertEqual(server.instructions, "Test instructions")
+        let serverInfo = await server.serverInfo
+        let instructions = await server.instructions
+        
+        XCTAssertEqual(serverInfo.name, "test-server")
+        XCTAssertEqual(serverInfo.version, "1.0.0")
+        XCTAssertEqual(serverInfo.title, "Test Server")
+        XCTAssertEqual(instructions, "Test instructions")
     }
     
     func testServerBuilder() async throws {
@@ -28,12 +31,15 @@ final class SwiftMCPTests: XCTestCase {
             .withLogging()
             .build()
         
-        XCTAssertEqual(server.serverInfo.name, "builder-server")
-        XCTAssertEqual(server.serverInfo.version, "2.0.0")
-        XCTAssertNotNil(server.serverCapabilities.tools)
-        XCTAssertNotNil(server.serverCapabilities.resources)
-        XCTAssertNotNil(server.serverCapabilities.prompts)
-        XCTAssertNotNil(server.serverCapabilities.logging)
+        let serverInfo = await server.serverInfo
+        let serverCapabilities = await server.serverCapabilities
+        
+        XCTAssertEqual(serverInfo.name, "builder-server")
+        XCTAssertEqual(serverInfo.version, "2.0.0")
+        XCTAssertNotNil(serverCapabilities.tools)
+        XCTAssertNotNil(serverCapabilities.resources)
+        XCTAssertNotNil(serverCapabilities.prompts)
+        XCTAssertNotNil(serverCapabilities.logging)
     }
     
     func testToolRegistration() async throws {

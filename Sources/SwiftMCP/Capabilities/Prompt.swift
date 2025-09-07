@@ -113,7 +113,7 @@ public struct MCPPromptMessage: Codable, Sendable {
 
 public protocol MCPPromptProvider: Sendable {
     var definition: MCPPrompt { get }
-    func generate(arguments: [String: String]?) async throws -> [MCPPromptMessage]
+    nonisolated func generate(arguments: [String: String]?) async throws -> [MCPPromptMessage]
 }
 
 // MARK: - Simple Prompt Implementation
@@ -138,7 +138,7 @@ public struct SimplePrompt: MCPPromptProvider {
         self.generator = generator
     }
     
-    public func generate(arguments: [String: String]?) async throws -> [MCPPromptMessage] {
+    public nonisolated func generate(arguments: [String: String]?) async throws -> [MCPPromptMessage] {
         try await generator(arguments)
     }
 }

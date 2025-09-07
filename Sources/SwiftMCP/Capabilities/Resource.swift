@@ -11,9 +11,9 @@ import Foundation
 
 public protocol MCPResourceProvider: Sendable {
     var definition: MCPResource { get async }
-    func read() async throws -> MCPResource
-    func subscribe(handler: @escaping @Sendable (MCPResource) -> Void) async throws
-    func unsubscribe() async
+    nonisolated func read() async throws -> MCPResource
+    nonisolated func subscribe(handler: @escaping @Sendable (MCPResource) -> Void) async throws
+    nonisolated func unsubscribe() async
 }
 
 // MARK: - Simple Resource Implementation
@@ -46,19 +46,19 @@ public struct SimpleResource: MCPResourceProvider {
         self.reader = reader
     }
     
-    public func read() async throws -> MCPResource {
+    public nonisolated func read() async throws -> MCPResource {
         if let reader = reader {
             return try await reader()
         }
         return _definition
     }
     
-    public func subscribe(handler: @escaping @Sendable (MCPResource) -> Void) async throws {
+    public nonisolated func subscribe(handler: @escaping @Sendable (MCPResource) -> Void) async throws {
         // Simple implementation doesn't support subscriptions
         throw JSONRPCError(code: -32001, message: "Subscriptions not supported")
     }
     
-    public func unsubscribe() async {
+    public nonisolated func unsubscribe() async {
         // No-op for simple implementation
     }
 }
@@ -91,7 +91,11 @@ public actor DynamicResource: MCPResourceProvider {
         self.updateHandler = updateHandler
     }
     
-    public func read() async throws -> MCPResource {
+    public nonisolated func read() async throws -> MCPResource {
+        try await self._read()
+    }
+    
+    private func _read() async throws -> MCPResource {
         if let handler = updateHandler {
             _definition = try await handler()
         }
@@ -103,12 +107,20 @@ public actor DynamicResource: MCPResourceProvider {
         notifySubscribers()
     }
     
-    public func subscribe(handler: @escaping @Sendable (MCPResource) -> Void) async throws {
+    public nonisolated func subscribe(handler: @escaping @Sendable (MCPResource) -> Void) async throws {
+        try await self._subscribe(handler: handler)
+    }
+    
+    private func _subscribe(handler: @escaping @Sendable (MCPResource) -> Void) async throws {
         subscribers.append(handler)
         handler(_definition) // Send current state immediately
     }
     
-    public func unsubscribe() async {
+    public nonisolated func unsubscribe() async {
+        await self._unsubscribe()
+    }
+    
+    private func _unsubscribe() async {
         subscribers.removeAll()
     }
     

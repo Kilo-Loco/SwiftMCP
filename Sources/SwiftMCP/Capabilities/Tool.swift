@@ -120,7 +120,7 @@ public struct MCPToolResult: Codable, Sendable {
 
 public protocol MCPToolExecutor: Sendable {
     var definition: MCPTool { get }
-    func execute(arguments: [String: Any]?) async throws -> MCPToolResult
+    nonisolated func execute(arguments: [String: Any]?) async throws -> MCPToolResult
 }
 
 // MARK: - Simple Tool Implementation
@@ -147,7 +147,7 @@ public struct SimpleTool: MCPToolExecutor {
         self.handler = handler
     }
     
-    public func execute(arguments: [String: Any]?) async throws -> MCPToolResult {
+    public nonisolated func execute(arguments: [String: Any]?) async throws -> MCPToolResult {
         try await handler(arguments)
     }
 }
@@ -175,8 +175,9 @@ public actor MCPToolRegistry {
         tools.values.map { $0.definition }
     }
     
-    @preconcurrency public func execute(name: String, arguments: [String: Any]?) async throws -> MCPToolResult {
-        guard let tool = tools[name] else {
+    public nonisolated func execute(name: String, arguments: [String: Any]?) async throws -> MCPToolResult {
+        let tool = await self.get(name: name)
+        guard let tool = tool else {
             throw JSONRPCError.methodNotFound(method: "tools/call:\(name)")
         }
         return try await tool.execute(arguments: arguments)
