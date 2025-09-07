@@ -371,6 +371,28 @@ public actor MCPServer {
     public func registerPrompt(_ prompt: MCPPromptProvider) async {
         await promptRegistry.register(prompt)
     }
+    
+    // MARK: - Registry Access Methods
+    
+    /// Gets all registered tools
+    public func getRegisteredTools() async -> [MCPTool] {
+        await toolRegistry.list()
+    }
+    
+    /// Gets all registered resources
+    public func getRegisteredResources() async -> [MCPResource] {
+        await resourceRegistry.list()
+    }
+    
+    /// Gets all registered prompts
+    public func getRegisteredPrompts() async -> [MCPPrompt] {
+        await promptRegistry.list()
+    }
+    
+    /// Gets the current server state
+    public var currentState: MCPServerState {
+        get async { state }
+    }
 }
 
 // MARK: - Extensions for Encoding
@@ -387,24 +409,66 @@ private extension Data {
     }
 }
 
+// MARK: - Result Type Alias
+
+/// Convenience type for MCP results
+public typealias MCPResult<T> = Result<T, MCPError>
+
 // MARK: - MCP Error
 
 public enum MCPError: LocalizedError {
+    // Server errors
     case invalidState(String)
+    case serverNotInitialized
+    case serverAlreadyRunning
+    
+    // Transport errors  
     case transportError(Error)
+    case transportNotConnected
+    
+    // Encoding/Decoding
     case encodingError(Error)
     case decodingError(Error)
+    
+    // Tool errors
+    case toolNotFound(name: String)
+    case toolExecutionFailed(name: String, reason: String)
+    
+    // Resource errors
+    case resourceNotFound(uri: String)
+    
+    // Prompt errors
+    case promptNotFound(name: String)
+    
+    // Generic errors
+    case internalError(String)
     
     public var errorDescription: String? {
         switch self {
         case .invalidState(let message):
             return "Invalid state: \(message)"
+        case .serverNotInitialized:
+            return "Server has not been initialized"
+        case .serverAlreadyRunning:
+            return "Server is already running"
         case .transportError(let error):
             return "Transport error: \(error.localizedDescription)"
+        case .transportNotConnected:
+            return "Transport is not connected"
         case .encodingError(let error):
             return "Encoding error: \(error.localizedDescription)"
         case .decodingError(let error):
             return "Decoding error: \(error.localizedDescription)"
+        case .toolNotFound(let name):
+            return "Tool '\(name)' not found"
+        case .toolExecutionFailed(let name, let reason):
+            return "Tool '\(name)' execution failed: \(reason)"
+        case .resourceNotFound(let uri):
+            return "Resource not found: \(uri)"
+        case .promptNotFound(let name):
+            return "Prompt '\(name)' not found"
+        case .internalError(let message):
+            return "Internal error: \(message)"
         }
     }
 }
