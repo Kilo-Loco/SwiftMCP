@@ -48,7 +48,7 @@ public actor MCPServer {
     private let promptRegistry: MCPPromptRegistry
     
     // Delegate
-    public weak var delegate: MCPServerDelegate?
+    private weak var delegate: MCPServerDelegate?
     
     // Transport
     private var transport: MCPTransport?
@@ -81,7 +81,36 @@ public actor MCPServer {
         MCPServerBuilder(name: name, version: version)
     }
     
+    // MARK: - Factory Method
+    
+    /// Creates and initializes an MCP server with optional delegate
+    public static func create(
+        name: String,
+        version: String,
+        title: String? = nil,
+        instructions: String? = nil,
+        delegate: MCPServerDelegate? = nil
+    ) async -> MCPServer {
+        let server = MCPServer(
+            name: name,
+            version: version,
+            title: title,
+            instructions: instructions
+        )
+        
+        if let delegate = delegate {
+            await server.setDelegate(delegate)
+        }
+        
+        return server
+    }
+    
     // MARK: - Lifecycle
+    
+    /// Sets the delegate for server callbacks
+    public func setDelegate(_ delegate: MCPServerDelegate?) async {
+        self.delegate = delegate
+    }
     
     public func start(transport: MCPTransport) async throws {
         guard state == .uninitialized else {
@@ -99,6 +128,7 @@ public actor MCPServer {
         }
     }
     
+    /// Shuts down the server and cleans up resources
     public func shutdown() async {
         guard state == .ready else { return }
         
@@ -117,36 +147,53 @@ public actor MCPServer {
         do {
             while state != .terminated {
                 let data = try await transport.receive()
-                await handleMessage(data)
+                await handleMessageInternal(data)
             }
         } catch {
             logger.error("Message processing error: \(error)")
         }
     }
     
-    private func handleMessage(_ data: Data) async {
-        do {
-            // Try to decode as request
-            if let request = try? JSONDecoder().decode(JSONRPCRequest.self, from: data) {
-                let response = await handleRequest(request)
-                let responseData = try JSONEncoder().encode(response)
-                try await transport?.send(responseData)
+    /// Handles incoming JSON-RPC messages
+    public func handleMessage(_ data: Data) async -> Data? {
+        // Try to decode as request
+        if let request = try? JSONDecoder().decode(JSONRPCRequest.self, from: data) {
+            let response = await handleRequest(request)
+            do {
+                return try JSONEncoder().encode(response)
+            } catch {
+                logger.error("Failed to encode response: \(error)")
+                return nil
             }
-            // Try to decode as notification
-            else if let notification = try? JSONDecoder().decode(JSONRPCNotification.self, from: data) {
-                await handleNotification(notification)
-            }
-            else {
-                logger.error("Invalid message format")
-            }
-        } catch {
-            logger.error("Message handling error: \(error)")
+        }
+        // Try to decode as notification
+        else if let notification = try? JSONDecoder().decode(JSONRPCNotification.self, from: data) {
+            await handleNotification(notification)
+            return nil
+        }
+        else {
+            logger.error("Invalid message format")
+            return nil
+        }
+    }
+    
+    private func handleMessageInternal(_ data: Data) async {
+        if let responseData = await handleMessage(data) {
+            try? await transport?.send(responseData)
         }
     }
     
     private func handleRequest(_ request: JSONRPCRequest) async -> JSONRPCResponse {
         // Check initialization
-        if request.method != "initialize" && state != .ready {
+        if request.method == "initialize" {
+            // Allow initialize in uninitialized or initializing state
+            if state != .uninitialized && state != .initializing {
+                return JSONRPCResponse(
+                    id: request.id,
+                    error: JSONRPCError(code: -32002, message: "Server already initialized")
+                )
+            }
+        } else if state != .ready {
             return JSONRPCResponse(
                 id: request.id,
                 error: JSONRPCError(code: -32002, message: "Server not initialized")
@@ -216,6 +263,9 @@ public actor MCPServer {
     // MARK: - Protocol Handlers
     
     private func handleInitialize(_ params: AnyCodable?) async throws -> AnyCodable {
+        // Update state to initializing
+        state = .initializing
+        
         guard let paramsDict = params?.value as? [String: Any],
               let data = try? JSONSerialization.data(withJSONObject: paramsDict) else {
             throw JSONRPCError.invalidParams()
@@ -234,12 +284,23 @@ public actor MCPServer {
         self.clientCapabilities = request.capabilities
         
         // Create response
-        let response = [
+        let capabilitiesData = try JSONEncoder().encode(serverCapabilities)
+        let serverInfoData = try JSONEncoder().encode(serverInfo)
+        
+        guard let capabilitiesObj = try? JSONSerialization.jsonObject(with: capabilitiesData) as? [String: Any],
+              let serverInfoObj = try? JSONSerialization.jsonObject(with: serverInfoData) as? [String: Any] else {
+            throw JSONRPCError.internalError(data: AnyCodable("Failed to encode server info"))
+        }
+        
+        var response: [String: Any] = [
             "protocolVersion": MCPProtocolVersion,
-            "capabilities": try JSONEncoder().encode(serverCapabilities).jsonObject(),
-            "serverInfo": try JSONEncoder().encode(serverInfo).jsonObject(),
-            "instructions": instructions as Any
+            "capabilities": capabilitiesObj,
+            "serverInfo": serverInfoObj
         ]
+        
+        if let instructions = instructions {
+            response["instructions"] = instructions
+        }
         
         return AnyCodable(response)
     }

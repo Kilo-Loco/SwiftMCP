@@ -9,6 +9,15 @@ import Foundation
 import SwiftMCP
 import os.log
 
+// MARK: - StdioTransport Delegate
+
+public protocol StdioTransportDelegate: AnyObject, Sendable {
+    func transport(_ transport: StdioTransport, didReceive data: Data) async
+    func transportDidConnect(_ transport: StdioTransport) async
+    func transportDidDisconnect(_ transport: StdioTransport) async
+    func transport(_ transport: StdioTransport, didEncounterError error: Error) async
+}
+
 public actor StdioTransport: MCPTransport {
     private let logger = Logger(subsystem: "SwiftMCP", category: "StdioTransport")
     
@@ -16,7 +25,31 @@ public actor StdioTransport: MCPTransport {
     private var inputContinuation: AsyncStream<Data>.Continuation?
     private var isRunning = false
     
+    // Delegate
+    private weak var delegate: StdioTransportDelegate?
+    
+    // Public stream for receiving data
+    private var receivedDataStream: AsyncStream<Data>?
+    private var receivedDataContinuation: AsyncStream<Data>.Continuation?
+    
     public init() {}
+    
+    /// Sets the delegate for transport callbacks
+    public func setDelegate(_ delegate: StdioTransportDelegate?) async {
+        self.delegate = delegate
+    }
+    
+    /// Provides an async stream of received data
+    public var receivedData: AsyncStream<Data> {
+        if let stream = receivedDataStream {
+            return stream
+        }
+        
+        let (stream, continuation) = AsyncStream<Data>.makeStream()
+        receivedDataStream = stream
+        receivedDataContinuation = continuation
+        return stream
+    }
     
     public func start() async throws {
         guard !isRunning else { return }
@@ -31,6 +64,9 @@ public actor StdioTransport: MCPTransport {
         Task {
             await readStdin()
         }
+        
+        // Notify delegate
+        await delegate?.transportDidConnect(self)
         
         logger.info("Stdio transport started")
     }
@@ -71,6 +107,15 @@ public actor StdioTransport: MCPTransport {
         inputContinuation?.finish()
         inputContinuation = nil
         inputStream = nil
+        
+        // Finish received data stream
+        receivedDataContinuation?.finish()
+        receivedDataContinuation = nil
+        receivedDataStream = nil
+        
+        // Notify delegate
+        await delegate?.transportDidDisconnect(self)
+        
         logger.info("Stdio transport stopped")
     }
     
@@ -94,6 +139,14 @@ public actor StdioTransport: MCPTransport {
                         let message = buffer
                         buffer.removeAll()
                         inputContinuation?.yield(message)
+                        
+                        // Notify delegate
+                        if let delegate = self.delegate {
+                            await delegate.transport(self, didReceive: message)
+                        }
+                        
+                        // Also send to stream if available
+                        receivedDataContinuation?.yield(message)
                     }
                 }
             }

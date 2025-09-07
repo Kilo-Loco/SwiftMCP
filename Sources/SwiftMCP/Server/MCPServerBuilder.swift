@@ -12,6 +12,7 @@ public class MCPServerBuilder {
     private let version: String
     private var title: String?
     private var instructions: String?
+    private var delegate: MCPServerDelegate?
     
     private var tools: [MCPToolExecutor] = []
     private var resources: [MCPResourceProvider] = []
@@ -43,6 +44,12 @@ public class MCPServerBuilder {
     @discardableResult
     public func withInstructions(_ instructions: String) -> Self {
         self.instructions = instructions
+        return self
+    }
+    
+    @discardableResult
+    public func withDelegate(_ delegate: MCPServerDelegate) -> Self {
+        self.delegate = delegate
         return self
     }
     
@@ -152,6 +159,11 @@ public class MCPServerBuilder {
             instructions: instructions,
             capabilities: capabilities
         )
+        
+        // Set delegate if provided
+        if let delegate = delegate {
+            await server.setDelegate(delegate)
+        }
         
         // Register capabilities
         for tool in tools {
